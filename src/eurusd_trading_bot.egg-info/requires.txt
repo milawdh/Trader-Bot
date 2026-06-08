@@ -1,0 +1,9 @@
+PySide6>=6.7
+pydantic>=2.7
+PyYAML>=6.0
+numpy>=1.26
+pandas>=2.2
+pytest>=8.0
+
+[:platform_system == "Windows"]
+MetaTrader5>=5.0.45

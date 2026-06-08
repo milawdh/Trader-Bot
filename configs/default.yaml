@@ -1,0 +1,66 @@
+application:
+  mode: BACKTEST
+  log_level: INFO
+
+trading:
+  symbol: EURUSD
+  broker_symbol: EURUSD
+  timeframe: H1
+  magic_number: 26060801
+  comment: EURUSD_TREND_PULLBACK_V1
+
+strategy:
+  strategy_id: strong_candle_v1
+  fast_ema_period: 50
+  slow_ema_period: 200
+  rsi_period: 14
+  atr_period: 14
+  buy_pullback_rsi_level: 45
+  buy_confirmation_rsi_level: 50
+  sell_pullback_rsi_level: 55
+  sell_confirmation_rsi_level: 50
+  stop_loss_atr_multiplier: 1.5
+  take_profit_atr_multiplier: 2.25
+  pullback_lookback_bars: 5
+  strong_candle_min_body_pips: 50
+  strong_candle_max_body_pips: 200
+  strong_candle_max_total_wick_pips: 15
+  strong_candle_take_profit_pips: 50
+  strong_candle_stop_loss_pips: 30
+
+risk:
+  risk_per_trade_percent: 0.5
+  maximum_daily_loss_percent: 2.0
+  maximum_total_drawdown_percent: 10.0
+  maximum_open_positions: 1
+  maximum_trades_per_day: 3
+  minimum_stop_loss_points: 50
+  maximum_stop_loss_points: 500
+  include_floating_loss_in_daily_limit: true
+
+execution:
+  maximum_spread_points: 25
+  maximum_deviation_points: 10
+  allow_buy: true
+  allow_sell: true
+  evaluate_closed_candles_only: true
+
+session:
+  enabled: true
+  timezone: UTC
+  start_hour: 7
+  end_hour: 17
+
+backtest:
+  initial_balance: 10000
+  account_currency: USD
+  leverage: 100
+  commission_per_lot_round_turn: 7.0
+  slippage_points: 2
+  default_spread_points: 12
+  start_date: 2022-01-01
+  end_date: 2026-06-01
+  stop_first_when_sl_and_tp_hit: true
+
+ui:
+  database_path: data/app/trading_bot.db

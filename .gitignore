@@ -1,0 +1,16 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+data/app/*.db
+data/app/*.db-shm
+data/app/*.db-wal
+data/raw/*.csv
+build/
+dist/
+*.spec
+
