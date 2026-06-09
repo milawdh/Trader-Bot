@@ -17,6 +17,7 @@ from trading_bot.domain import (
     Trade,
     TradingSignal,
 )
+from trading_bot.market_data import default_symbol_snapshot
 from trading_bot.risk import PositionSizer, RiskManager, RuntimeRiskState
 from trading_bot.strategies.base import StrategyContext, TradingStrategy
 
@@ -42,15 +43,8 @@ class BacktestEngine:
     ) -> None:
         self.settings = settings
         self.strategy = strategy
-        self.symbol = symbol or SymbolSnapshot(
-            name=settings.trading.broker_symbol,
-            digits=5,
-            point=Decimal("0.00001"),
-            volume_min=Decimal("0.01"),
-            volume_max=Decimal("100"),
-            volume_step=Decimal("0.01"),
-            contract_size=Decimal("100000"),
-            trade_stops_level=0,
+        self.symbol = symbol or default_symbol_snapshot(
+            settings.trading.broker_symbol or settings.trading.symbol
         )
         self.position_sizer = PositionSizer()
 
@@ -309,7 +303,7 @@ class BacktestEngine:
         return Trade(
             trade_id=uuid.uuid4().hex[:12],
             signal_id=open_trade.signal.signal_id,
-            symbol=open_trade.signal.symbol,
+            symbol=self.settings.trading.symbol,
             side=open_trade.side,
             candle_time=open_trade.signal.candle_time,
             entry_time=open_trade.entry_time,
@@ -326,6 +320,8 @@ class BacktestEngine:
             net_pnl=net,
             exit_reason=exit_reason,
             margin_required=open_trade.margin_required,
+            signal_reason=open_trade.signal.reason,
+            signal_indicators=dict(open_trade.signal.indicators),
         )
 
     def _floating_pnl(self, open_trade: _OpenTrade, current_price: Decimal) -> Decimal:

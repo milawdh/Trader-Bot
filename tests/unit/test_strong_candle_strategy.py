@@ -20,6 +20,9 @@ class StrongCandleStrategyTests(unittest.TestCase):
         self.assertEqual(signal.side, Side.BUY)
         self.assertEqual(signal.stop_loss_price, Decimal("1.10350"))
         self.assertEqual(signal.take_profit_price, Decimal("1.11050"))
+        self.assertEqual(signal.indicators["body_pips"], Decimal("55"))
+        self.assertEqual(signal.indicators["candle_range_pips"], Decimal("65"))
+        self.assertEqual(signal.indicators["total_shadow_pips"], Decimal("10"))
 
     def test_bearish_large_body_limited_wick_candle_generates_sell(self) -> None:
         signal = StrongCandleStrategy().generate_signal(
@@ -30,6 +33,21 @@ class StrongCandleStrategyTests(unittest.TestCase):
         self.assertEqual(signal.side, Side.SELL)
         self.assertEqual(signal.stop_loss_price, Decimal("1.10200"))
         self.assertEqual(signal.take_profit_price, Decimal("1.09500"))
+
+    def test_xauusd_uses_gold_pip_size_and_price_digits(self) -> None:
+        settings = Settings()
+        settings.trading.symbol = "XAUUSD"
+        settings.trading.broker_symbol = "XAUUSD"
+
+        signal = StrongCandleStrategy().generate_signal(
+            [_candle("2300.00", "2306.00", "2299.50", "2305.50")],
+            StrategyContext(settings),
+        )
+
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal.side, Side.BUY)
+        self.assertEqual(signal.stop_loss_price, Decimal("2303.50"))
+        self.assertEqual(signal.take_profit_price, Decimal("2310.50"))
 
     def test_body_must_be_at_least_configured_minimum(self) -> None:
         signal = StrongCandleStrategy().generate_signal(

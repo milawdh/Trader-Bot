@@ -16,6 +16,7 @@ def calculate_metrics(
     initial_balance: Decimal,
 ) -> dict[str, Any]:
     final_balance = equity_curve[-1][1] if equity_curve else initial_balance
+    equity_values = [equity for _, equity in equity_curve] or [initial_balance]
     net_profit = final_balance - initial_balance
     gross_profit = sum((trade.net_pnl for trade in trades if trade.net_pnl > 0), Decimal("0"))
     gross_loss = sum((trade.net_pnl for trade in trades if trade.net_pnl < 0), Decimal("0"))
@@ -32,6 +33,8 @@ def calculate_metrics(
     return {
         "initial_balance": initial_balance,
         "final_balance": final_balance,
+        "highest_equity": max(equity_values),
+        "lowest_equity": min(equity_values),
         "net_profit": net_profit,
         "total_return_percent": _pct(net_profit, initial_balance),
         "gross_profit": gross_profit,
@@ -186,4 +189,3 @@ def _calmar(net_profit: Decimal, initial_balance: Decimal, max_drawdown_pct: Dec
     if total_return is None or max_drawdown_pct == 0:
         return None
     return total_return / max_drawdown_pct
-

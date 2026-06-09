@@ -9,6 +9,7 @@ from trading_bot.config.models import Settings
 from trading_bot.domain import Candle, Side, TradingSignal
 from trading_bot.market_data import generate_demo_candles, generate_demo_candles_for_range
 from trading_bot.strategies.base import StrategyContext
+from trading_bot.strategies.strong_candle import StrongCandleStrategy
 
 
 class _OneSignalStrategy:
@@ -37,6 +38,7 @@ class _OneSignalStrategy:
             atr=Decimal("0.001"),
             reason="test",
             strategy_name=self.name,
+            indicators={"body_pips": Decimal("10")},
         )
 
 
@@ -63,6 +65,26 @@ class _EveryCandleStrategy:
         )
 
 
+class _WrongSymbolStrategy(_OneSignalStrategy):
+    def generate_signal(self, candles: list[Candle], context: StrategyContext) -> TradingSignal | None:
+        signal = super().generate_signal(candles, context)
+        if signal is None:
+            return None
+        return TradingSignal(
+            signal_id=signal.signal_id,
+            symbol="EURUSD",
+            timeframe=signal.timeframe,
+            side=signal.side,
+            candle_time=signal.candle_time,
+            entry_reference_price=signal.entry_reference_price,
+            stop_loss_price=signal.stop_loss_price,
+            take_profit_price=signal.take_profit_price,
+            atr=signal.atr,
+            reason=signal.reason,
+            strategy_name=signal.strategy_name,
+        )
+
+
 class BacktestTests(unittest.TestCase):
     def test_backtest_generates_metrics_and_trade_rows(self) -> None:
         settings = Settings()
@@ -72,6 +94,8 @@ class BacktestTests(unittest.TestCase):
         candles = generate_demo_candles(80, start=datetime(2024, 1, 1, tzinfo=UTC))
         result = BacktestEngine(settings, _OneSignalStrategy()).run(candles, run_stress=False)
         self.assertIn("net_profit", result.metrics)
+        self.assertIn("highest_equity", result.metrics)
+        self.assertIn("lowest_equity", result.metrics)
         self.assertGreaterEqual(len(result.equity_curve), 1)
         self.assertGreaterEqual(len(result.trades), 1)
 
@@ -102,6 +126,16 @@ class BacktestTests(unittest.TestCase):
         self.assertGreaterEqual(len(candles), 288)
         self.assertEqual(candles[1].time - candles[0].time, timedelta(minutes=5))
 
+    def test_demo_data_uses_selected_symbol_price_scale(self) -> None:
+        candles = generate_demo_candles(
+            3,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            symbol="XAUUSD",
+        )
+
+        self.assertEqual(candles[0].open, Decimal("2300.00"))
+        self.assertGreater(candles[0].close, Decimal("1000"))
+
     def test_backtest_result_and_trades_use_configured_symbol(self) -> None:
         settings = Settings()
         settings.trading.symbol = "GBPUSD"
@@ -116,6 +150,43 @@ class BacktestTests(unittest.TestCase):
 
         self.assertEqual(result.symbol, "GBPUSD")
         self.assertEqual(result.timeframe, "M5")
+        self.assertGreaterEqual(len(result.trades), 1)
+        self.assertEqual(result.trades[0].symbol, "GBPUSD")
+        self.assertEqual(result.trades[0].signal_reason, "test")
+        self.assertEqual(result.trades[0].signal_indicators["body_pips"], Decimal("10"))
+
+    def test_xauusd_demo_backtest_uses_gold_price_scale(self) -> None:
+        settings = Settings()
+        settings.trading.symbol = "XAUUSD"
+        settings.trading.broker_symbol = "XAUUSD"
+        settings.trading.timeframe = "M15"
+        settings.session.enabled = False
+        candles = generate_demo_candles(
+            80,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            step=timedelta(minutes=15),
+            symbol="XAUUSD",
+        )
+
+        result = BacktestEngine(settings, StrongCandleStrategy()).run(candles, run_stress=False)
+
+        self.assertGreaterEqual(len(result.trades), 1)
+        self.assertEqual(result.trades[0].symbol, "XAUUSD")
+        self.assertGreater(result.trades[0].entry_price, Decimal("1000"))
+        self.assertIn("body", result.trades[0].signal_reason)
+        self.assertIn("total_shadow_pips", result.trades[0].signal_indicators)
+
+    def test_backtest_trades_do_not_use_stale_signal_symbol(self) -> None:
+        settings = Settings()
+        settings.trading.symbol = "GBPUSD"
+        settings.trading.broker_symbol = "GBPUSD"
+        settings.risk.minimum_stop_loss_points = 1
+        settings.risk.maximum_stop_loss_points = 100000
+        settings.session.enabled = False
+        candles = generate_demo_candles(80, start=datetime(2024, 1, 1, tzinfo=UTC))
+
+        result = BacktestEngine(settings, _WrongSymbolStrategy()).run(candles, run_stress=False)
+
         self.assertGreaterEqual(len(result.trades), 1)
         self.assertEqual(result.trades[0].symbol, "GBPUSD")
 

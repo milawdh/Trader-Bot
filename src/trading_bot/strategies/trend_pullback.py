@@ -7,6 +7,7 @@ from trading_bot.common.identifiers import signal_id
 from trading_bot.config.models import StrategySettings
 from trading_bot.domain import Candle, Side, TradingSignal
 from trading_bot.indicators import atr, ema, rsi
+from trading_bot.market_data import price_digits_for_symbol
 from trading_bot.strategies.base import StrategyContext
 
 
@@ -88,7 +89,8 @@ class TrendPullbackStrategy:
 
         side = Side.BUY if buy_signal else Side.SELL
         entry = current.close
-        digits = 5
+        symbol_name = context.settings.trading.broker_symbol or context.settings.trading.symbol
+        digits = price_digits_for_symbol(symbol_name)
         if side is Side.BUY:
             stop_loss = entry - current_atr * settings.stop_loss_atr_multiplier
             take_profit = entry + current_atr * settings.take_profit_atr_multiplier
@@ -165,4 +167,3 @@ class TrendPullbackStrategy:
             and current_rsi < settings.sell_confirmation_rsi_level
             and current.close < current.open
         )
-

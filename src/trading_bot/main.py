@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
                 _date_start(settings.backtest.start_date),
                 _date_start(settings.backtest.end_date),
                 settings.trading.timeframe,
+                symbol=settings.trading.broker_symbol or settings.trading.symbol,
             )
         )
         result = BacktestRunner(settings).run(candles, persist=True)

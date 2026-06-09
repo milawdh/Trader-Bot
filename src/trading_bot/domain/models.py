@@ -152,6 +152,8 @@ class Trade:
     net_pnl: Decimal
     exit_reason: str
     margin_required: Decimal = Decimal("0")
+    signal_reason: str = ""
+    signal_indicators: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,4 +172,3 @@ class BacktestResult:
     daily_returns: list[tuple[str, Decimal]]
     candle_markers: list[dict[str, Any]]
     stress_results: list[dict[str, Any]] = field(default_factory=list)
-

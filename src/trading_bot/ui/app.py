@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -10,7 +10,7 @@ from trading_bot.application.live_runner import LiveRunner
 from trading_bot.config.models import Settings
 from trading_bot.domain import BacktestResult, Candle, Trade
 from trading_bot.execution.mt5_gateway import MT5Gateway
-from trading_bot.market_data import generate_demo_candles_for_range, load_candles_from_csv
+from trading_bot.market_data import load_candles_from_csv
 from trading_bot.persistence import TradingBotDatabase
 from trading_bot.risk import RuntimeRiskState
 from trading_bot.strategies import StrategyDescriptor, default_strategy_registry
@@ -58,7 +58,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "commission": "Commission / Lot",
         "data": "Data",
         "run_backtest": "Run Backtest",
-        "backtest_log_ready": "Backtest is ready. Use demo data or select a CSV candle file.",
+        "backtest_log_ready": "Backtest is ready. Connect MT5 history or select a CSV candle file.",
         "running_backtest": "Running backtest...",
         "backtest_failed": "Backtest failed",
         "completed": "completed",
@@ -92,7 +92,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "entry_price": "Entry Price",
         "exit_price": "Exit Price",
         "net_pnl": "Net P&L",
-        "reason": "Reason",
+        "signal_reason": "Signal Reason",
+        "indicators": "Indicators",
+        "exit_reason": "Exit Reason",
         "scenario": "Scenario",
         "profit_factor": "Profit Factor",
         "select_terminal": "Select terminal64.exe",
@@ -178,7 +180,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "entry_price": "قیمت ورود",
         "exit_price": "قیمت خروج",
         "net_pnl": "سود/ضرر خالص",
-        "reason": "دلیل",
+        "signal_reason": "دلیل سیگنال",
+        "indicators": "اندیکاتورها",
+        "exit_reason": "دلیل خروج",
         "scenario": "سناریو",
         "profit_factor": "فاکتور سود",
         "select_terminal": "انتخاب terminal64.exe",
@@ -581,7 +585,7 @@ class MainWindow:
                 self.history_label = QLabel()
                 self.history_list = QListWidget()
                 self.trades_label = QLabel()
-                self.trade_table = QTableWidget(0, 11)
+                self.trade_table = QTableWidget(0, 13)
                 self.stress_label = QLabel()
                 self.stress_table = QTableWidget(0, 4)
                 right_layout.addWidget(self.history_label)
@@ -829,7 +833,9 @@ class MainWindow:
                         "SL",
                         "TP",
                         self._t("net_pnl"),
-                        self._t("reason"),
+                        self._t("signal_reason"),
+                        self._t("indicators"),
+                        self._t("exit_reason"),
                     ]
                 )
                 self.stress_table.setHorizontalHeaderLabels(
@@ -886,17 +892,35 @@ class MainWindow:
                     finished_result = Signal(object, object)
                     failed = Signal(str)
 
-                    def __init__(self, settings: Settings, csv_path: str) -> None:
+                    def __init__(
+                        self,
+                        settings: Settings,
+                        csv_path: str,
+                        terminal_path: str,
+                        login: int | None,
+                        password: str,
+                        server: str,
+                    ) -> None:
                         super().__init__()
                         self.settings = settings
                         self.csv_path = csv_path
+                        self.terminal_path = terminal_path
+                        self.login = login
+                        self.password = password
+                        self.server = server
 
                     def run(self) -> None:
                         try:
                             candles = (
                                 load_candles_from_csv(self.csv_path)
                                 if self.csv_path
-                                else _demo_candles_for_settings(self.settings)
+                                else _mt5_candles_for_settings(
+                                    self.settings,
+                                    self.terminal_path,
+                                    self.login,
+                                    self.password,
+                                    self.server,
+                                )
                             )
                             result = BacktestRunner(self.settings).run(candles, persist=True)
                             self.finished_result.emit(result, candles)
@@ -908,8 +932,10 @@ class MainWindow:
                     return
 
                 self._sync_backtest_settings()
+                login = int(self.login.text()) if self.login.text().strip() else None
                 self._clear_report()
                 self.run_backtest_button.setEnabled(False)
+                data_source = "CSV" if self.csv_path.text().strip() else "MT5 history"
                 self._set_log_events(
                     "backtest",
                     [
@@ -917,13 +943,17 @@ class MainWindow:
                             f"{self._t('running_backtest')} "
                             f"{self.settings.trading.symbol} "
                             f"({self.settings.trading.broker_symbol}) "
-                            f"{self.settings.trading.timeframe}"
+                            f"{self.settings.trading.timeframe} | {data_source}"
                         )
                     ],
                 )
                 self.backtest_thread = _BacktestThread(
                     copy.deepcopy(self.settings),
                     self.csv_path.text().strip(),
+                    self.terminal_path.text().strip(),
+                    login,
+                    self.password.text(),
+                    self.server.text().strip(),
                 )
                 self.backtest_thread.finished_result.connect(self._backtest_finished)
                 self.backtest_thread.failed.connect(self._backtest_failed)
@@ -1222,6 +1252,8 @@ class MainWindow:
                     ("Win Rate %", metrics.get("win_rate_percent")),
                     ("Trades", metrics.get("total_trades")),
                     ("Final Balance", metrics.get("final_balance")),
+                    ("Highest Equity", metrics.get("highest_equity")),
+                    ("Lowest Equity", metrics.get("lowest_equity")),
                 ]
                 for index, (title, value) in enumerate(summary_items):
                     card = QLabel(f"{title}\n{_fmt(value)}")
@@ -1252,6 +1284,8 @@ class MainWindow:
                         trade.stop_loss,
                         trade.take_profit,
                         trade.net_pnl,
+                        trade.signal_reason,
+                        _fmt_indicators(trade.signal_indicators),
                         trade.exit_reason,
                     ]
                     for col, value in enumerate(values):
@@ -1339,10 +1373,48 @@ def _timeframe_combo(combo: Any, current: str) -> Any:
     return combo
 
 
-def _demo_candles_for_settings(settings: Settings) -> list[Candle]:
+def _mt5_candles_for_settings(
+    settings: Settings,
+    terminal_path: str,
+    login: int | None,
+    password: str,
+    server: str,
+) -> list[Candle]:
+    gateway = MT5Gateway(
+        settings=settings,
+        terminal_path=terminal_path,
+        login=login,
+        password=password,
+        server=server,
+    )
+    symbol = settings.trading.broker_symbol or settings.trading.symbol
     start = _date_start(settings.backtest.start_date)
-    end = _date_start(settings.backtest.end_date)
-    return generate_demo_candles_for_range(start, end, settings.trading.timeframe)
+    end_exclusive = _date_start(settings.backtest.end_date) + timedelta(days=1)
+    try:
+        gateway.connect()
+        candles = gateway.get_candles_range(
+            symbol,
+            settings.trading.timeframe,
+            start,
+            end_exclusive,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "No CSV selected and MT5 historical candles could not be loaded. "
+            "Connect MetaTrader 5 or select a candle CSV for the selected symbol. "
+            f"MT5 error: {exc}"
+        ) from exc
+    finally:
+        try:
+            gateway.disconnect()
+        except Exception:
+            pass
+    if not candles:
+        raise RuntimeError(
+            f"MT5 returned no candles for {symbol} {settings.trading.timeframe} "
+            f"from {settings.backtest.start_date} to {settings.backtest.end_date}."
+        )
+    return candles
 
 
 def _date_start(value: str) -> datetime:
@@ -1397,6 +1469,12 @@ def _fmt(value: Any) -> str:
     if isinstance(value, Decimal):
         return f"{value.quantize(Decimal('0.01'))}" if abs(value) >= 10 else f"{value:.5f}"
     return str(value)
+
+
+def _fmt_indicators(indicators: dict[str, Any]) -> str:
+    if not indicators:
+        return "-"
+    return ", ".join(f"{key}={_fmt(value)}" for key, value in indicators.items())
 
 
 def _clear_layout(layout: Any) -> None:

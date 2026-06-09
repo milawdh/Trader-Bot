@@ -12,12 +12,15 @@ T = TypeVar("T")
 
 def load_settings(path: str | Path | None = None) -> Settings:
     settings = Settings()
+    default_path = Path("configs/default.yaml")
     if path is None:
-        default_path = Path("configs/default.yaml")
         if default_path.exists():
-            return load_settings(default_path)
+            return _apply_dataclass(settings, _load_yaml_like(default_path))
         return settings
-    raw = _load_yaml_like(Path(path))
+    config_path = Path(path)
+    if default_path.exists() and config_path.resolve() != default_path.resolve():
+        settings = _apply_dataclass(settings, _load_yaml_like(default_path))
+    raw = _load_yaml_like(config_path)
     return _apply_dataclass(settings, raw)
 
 
@@ -99,4 +102,3 @@ def _coerce_to_type(value: Any, target: Any) -> Any:
     if target is str:
         return str(value)
     return value
-

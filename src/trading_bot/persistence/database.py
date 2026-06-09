@@ -82,7 +82,9 @@ class TradingBotDatabase:
                     slippage_cost TEXT NOT NULL,
                     net_pnl TEXT NOT NULL,
                     exit_reason TEXT NOT NULL,
-                    margin_required TEXT NOT NULL
+                    margin_required TEXT NOT NULL,
+                    signal_reason TEXT NOT NULL DEFAULT '',
+                    signal_indicators_json TEXT NOT NULL DEFAULT '{}'
                 );
 
                 CREATE TABLE IF NOT EXISTS bot_state (
@@ -90,6 +92,13 @@ class TradingBotDatabase:
                     value TEXT NOT NULL
                 );
                 """
+            )
+            self._ensure_column(connection, "trades", "signal_reason", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(
+                connection,
+                "trades",
+                "signal_indicators_json",
+                "TEXT NOT NULL DEFAULT '{}'",
             )
 
     def save_backtest_result(self, result: BacktestResult) -> None:
@@ -125,8 +134,8 @@ class TradingBotDatabase:
                     trade_id, run_id, signal_id, symbol, side, candle_time, entry_time,
                     entry_price, exit_time, exit_price, stop_loss, take_profit, volume,
                     gross_pnl, commission, spread_cost, slippage_cost, net_pnl,
-                    exit_reason, margin_required
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    exit_reason, margin_required, signal_reason, signal_indicators_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [self._trade_row(result.run_id, trade) for trade in result.trades],
             )
@@ -161,6 +170,20 @@ class TradingBotDatabase:
         return connection
 
     @staticmethod
+    def _ensure_column(
+        connection: sqlite3.Connection,
+        table: str,
+        column: str,
+        definition: str,
+    ) -> None:
+        columns = {
+            str(row["name"])
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    @staticmethod
     def _trade_row(run_id: str, trade: Trade) -> tuple[str, ...]:
         return (
             trade.trade_id,
@@ -183,6 +206,8 @@ class TradingBotDatabase:
             str(trade.net_pnl),
             trade.exit_reason,
             str(trade.margin_required),
+            trade.signal_reason,
+            _json(trade.signal_indicators),
         )
 
 

@@ -113,6 +113,8 @@ class MT5Gateway:
 
     def get_candles(self, symbol: str, timeframe: str, count: int) -> list[Candle]:
         mt5 = self._require_mt5()
+        if not mt5.symbol_select(symbol, True):
+            raise ExecutionError(f"MT5 symbol_select failed for {symbol}: {mt5.last_error()}")
         mt5_timeframe = self._timeframe(timeframe)
         rates = mt5.copy_rates_from_pos(symbol, mt5_timeframe, 0, count)
         if rates is None:
@@ -145,6 +147,27 @@ class MT5Gateway:
                 complete=False,
             )
         return candles
+
+    def get_candles_range(
+        self,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+    ) -> list[Candle]:
+        mt5 = self._require_mt5()
+        if not mt5.symbol_select(symbol, True):
+            raise ExecutionError(f"MT5 symbol_select failed for {symbol}: {mt5.last_error()}")
+        mt5_timeframe = self._timeframe(timeframe)
+        rates = mt5.copy_rates_range(
+            symbol,
+            mt5_timeframe,
+            _to_utc(start),
+            _to_utc(end),
+        )
+        if rates is None:
+            raise ExecutionError(f"MT5 copy_rates_range failed: {mt5.last_error()}")
+        return [_candle_from_rate(row, complete=True) for row in rates]
 
     def get_open_positions(self, symbol: str, magic_number: int) -> list[Position]:
         mt5 = self._require_mt5()
@@ -282,3 +305,22 @@ class MT5Gateway:
             raise ExecutionError(f"Unsupported MT5 timeframe: {timeframe}")
         return mapping[timeframe]
 
+
+def _candle_from_rate(row: Any, complete: bool) -> Candle:
+    return Candle(
+        time=datetime.fromtimestamp(int(row["time"]), tz=UTC),
+        open=Decimal(str(row["open"])),
+        high=Decimal(str(row["high"])),
+        low=Decimal(str(row["low"])),
+        close=Decimal(str(row["close"])),
+        tick_volume=int(row["tick_volume"]),
+        spread=int(row["spread"]),
+        real_volume=int(row["real_volume"]),
+        complete=complete,
+    )
+
+
+def _to_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
