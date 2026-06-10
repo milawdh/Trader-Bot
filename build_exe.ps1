@@ -1,5 +1,5 @@
 param(
-    [switch]$OneFile,
+    [switch]$FolderBuild,
     [switch]$SkipTests
 )
 
@@ -48,7 +48,7 @@ $PyInstallerArgs = @(
     "--collect-all", "PySide6"
 )
 
-if ($OneFile) {
+if (-not $FolderBuild) {
     $PyInstallerArgs += "--onefile"
 }
 
@@ -57,7 +57,7 @@ $PyInstallerArgs += "main.py"
 Write-Host "Building executable..."
 & $Python -m PyInstaller @PyInstallerArgs
 
-if ($OneFile) {
+if (-not $FolderBuild) {
     $OutputDir = Join-Path $ProjectRoot "dist"
     $ExePath = Join-Path $OutputDir "TraderBot.exe"
 } else {
@@ -65,15 +65,21 @@ if ($OneFile) {
     $ExePath = Join-Path $OutputDir "TraderBot.exe"
 }
 
-$ExternalConfigs = Join-Path $OutputDir "configs"
-if (Test-Path -LiteralPath $ExternalConfigs) {
-    Remove-Item -LiteralPath $ExternalConfigs -Recurse -Force
+if ($FolderBuild) {
+    $ExternalConfigs = Join-Path $OutputDir "configs"
+    if (Test-Path -LiteralPath $ExternalConfigs) {
+        Remove-Item -LiteralPath $ExternalConfigs -Recurse -Force
+    }
+    Copy-Item -LiteralPath $ConfigsPath -Destination $ExternalConfigs -Recurse -Force
 }
-Copy-Item -LiteralPath $ConfigsPath -Destination $ExternalConfigs -Recurse -Force
 
 Write-Host ""
 Write-Host "Build complete:"
 Write-Host $ExePath
 Write-Host ""
-Write-Host "For delivery, send the whole output folder if you did not use -OneFile."
+if ($FolderBuild) {
+    Write-Host "For delivery, send the whole output folder because -FolderBuild was used."
+} else {
+    Write-Host "For delivery, send only TraderBot.exe."
+}
 Write-Host "The app does not require Python on the target machine."
