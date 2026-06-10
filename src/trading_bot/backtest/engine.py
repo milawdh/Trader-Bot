@@ -90,6 +90,7 @@ class BacktestEngine:
         current_risk_day = None
 
         for index, candle in enumerate(candles):
+            opened_trade_this_candle = False
             candle_day = candle.time.date()
             if current_risk_day != candle_day:
                 current_risk_day = candle_day
@@ -113,9 +114,10 @@ class BacktestEngine:
                             "signal_id": open_trade.signal.signal_id,
                         }
                     )
+                    opened_trade_this_candle = True
                 pending_signal = None
 
-            if open_trade is not None:
+            if open_trade is not None and not opened_trade_this_candle:
                 closed = self._maybe_close(open_trade, candle)
                 if closed is not None:
                     trade = self._to_trade(open_trade, closed[0], closed[1], closed[2])

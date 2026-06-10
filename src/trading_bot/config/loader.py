@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 from decimal import Decimal
 from pathlib import Path
+import sys
 from typing import Any, TypeVar, get_type_hints
 
 from trading_bot.config.models import Settings
@@ -12,16 +13,37 @@ T = TypeVar("T")
 
 def load_settings(path: str | Path | None = None) -> Settings:
     settings = Settings()
-    default_path = Path("configs/default.yaml")
+    default_path = _resolve_config_path("configs/default.yaml")
     if path is None:
         if default_path.exists():
             return _apply_dataclass(settings, _load_yaml_like(default_path))
         return settings
-    config_path = Path(path)
+    config_path = _resolve_config_path(path)
     if default_path.exists() and config_path.resolve() != default_path.resolve():
         settings = _apply_dataclass(settings, _load_yaml_like(default_path))
     raw = _load_yaml_like(config_path)
     return _apply_dataclass(settings, raw)
+
+
+def _resolve_config_path(path: str | Path) -> Path:
+    requested = Path(path)
+    if requested.is_absolute() or requested.exists():
+        return requested
+    for root in _runtime_roots():
+        candidate = root / requested
+        if candidate.exists():
+            return candidate
+    return requested
+
+
+def _runtime_roots() -> list[Path]:
+    roots = [Path.cwd()]
+    if getattr(sys, "frozen", False):
+        roots.append(Path(sys.executable).resolve().parent)
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        roots.append(Path(bundle_root))
+    return roots
 
 
 def _load_yaml_like(path: Path) -> dict[str, Any]:

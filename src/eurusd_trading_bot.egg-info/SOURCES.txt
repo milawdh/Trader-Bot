@@ -35,6 +35,7 @@ src/trading_bot/indicators/core.py
 src/trading_bot/market_data/__init__.py
 src/trading_bot/market_data/csv_provider.py
 src/trading_bot/market_data/demo_data.py
+src/trading_bot/market_data/symbols.py
 src/trading_bot/persistence/__init__.py
 src/trading_bot/persistence/database.py
 src/trading_bot/risk/__init__.py
@@ -43,6 +44,7 @@ src/trading_bot/risk/position_sizer.py
 src/trading_bot/strategies/__init__.py
 src/trading_bot/strategies/base.py
 src/trading_bot/strategies/registry.py
+src/trading_bot/strategies/strong_candle.py
 src/trading_bot/strategies/trend_pullback.py
 src/trading_bot/ui/__init__.py
 src/trading_bot/ui/app.py

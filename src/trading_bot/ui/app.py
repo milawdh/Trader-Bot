@@ -7,6 +7,7 @@ from typing import Any
 
 from trading_bot.application.backtest_runner import BacktestRunner
 from trading_bot.application.live_runner import LiveRunner
+from trading_bot.application.paper_runner import PaperRunner
 from trading_bot.config.models import Settings
 from trading_bot.domain import BacktestResult, Candle, Trade
 from trading_bot.execution.mt5_gateway import MT5Gateway
@@ -70,7 +71,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "start_paper": "Start Paper",
         "stop_paper": "Stop Paper",
         "paper_started": "Paper mode started. Real orders are disabled.",
-        "paper_not_looping": "Paper runner is prepared; continuous scheduling will use closed H1 candles only.",
+        "paper_looping": "Paper worker is running on closed candles. Real orders are disabled.",
         "live_title": "Live Trading",
         "live_warning": (
             "Live mode can send real market orders after all safety switches pass. "
@@ -158,7 +159,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "start_paper": "شروع پیپر",
         "stop_paper": "توقف پیپر",
         "paper_started": "حالت پیپر شروع شد. سفارش واقعی غیرفعال است.",
-        "paper_not_looping": "رانر پیپر آماده است؛ زمان بندی پیوسته فقط روی کندل بسته شده H1 اجرا می شود.",
+        "paper_looping": "پردازشگر پیپر روی کندل های بسته شده فعال است. سفارش واقعی ارسال نمی شود.",
         "live_title": "معامله لایو",
         "live_warning": (
             "حالت لایو بعد از عبور از قفل های ایمنی می تواند سفارش واقعی ارسال کند. "
@@ -985,12 +986,100 @@ class MainWindow:
                 self._set_log_events("backtest", [f"{self._t('backtest_failed')}: {reason}"])
 
             def _start_paper(self) -> None:
+                from PySide6.QtCore import QThread, Signal
+
+                class _PaperThread(QThread):
+                    log_line = Signal(str)
+                    failed = Signal(str)
+
+                    def __init__(
+                        self,
+                        settings: Settings,
+                        terminal_path: str,
+                        login: int | None,
+                        password: str,
+                        server: str,
+                    ) -> None:
+                        super().__init__()
+                        self.settings = settings
+                        self.terminal_path = terminal_path
+                        self.login = login
+                        self.password = password
+                        self.server = server
+
+                    def run(self) -> None:
+                        gateway = MT5Gateway(
+                            settings=self.settings,
+                            terminal_path=self.terminal_path,
+                            login=self.login,
+                            password=self.password,
+                            server=self.server,
+                        )
+                        try:
+                            gateway.connect()
+                            account = gateway.get_account()
+                            state = RuntimeRiskState(
+                                start_of_day_equity=account.equity,
+                                equity_peak=account.equity,
+                            )
+                            runner = PaperRunner(self.settings, gateway)
+                            self.log_line.emit("paper_looping")
+                            last_repeated_message = ""
+                            while not self.isInterruptionRequested():
+                                result = runner.run_once(state)
+                                message = result.reason
+                                if not (
+                                    message == "candle already processed"
+                                    and message == last_repeated_message
+                                ):
+                                    self.log_line.emit(message)
+                                last_repeated_message = message
+                                self.msleep(5000)
+                        except Exception as exc:
+                            self.failed.emit(str(exc))
+                        finally:
+                            try:
+                                gateway.disconnect()
+                            except Exception:
+                                pass
+
+                if getattr(self, "paper_thread", None) is not None and self.paper_thread.isRunning():
+                    self._append_log_event("paper", "paper_looping")
+                    return
                 self._sync_mode_settings("PAPER")
+                login = int(self.login.text()) if self.login.text().strip() else None
                 self.paper_start_button.setEnabled(False)
                 self.paper_stop_button.setEnabled(True)
-                self._set_log_events("paper", ["paper_started", "paper_not_looping"])
+                self._set_log_events("paper", ["paper_started"])
+                self.paper_thread = _PaperThread(
+                    copy.deepcopy(self.settings),
+                    self.terminal_path.text().strip(),
+                    login,
+                    self.password.text(),
+                    self.server.text().strip(),
+                )
+                self.paper_thread.log_line.connect(lambda line: self._append_log_event("paper", line))
+                self.paper_thread.failed.connect(self._paper_failed)
+                self.paper_thread.finished.connect(self._paper_finished)
+                self.paper_thread.finished.connect(self.paper_thread.deleteLater)
+                self.paper_thread.start()
+
+            def _paper_failed(self, reason: str) -> None:
+                self._append_log_event("paper", f"{self._t('backtest_failed')}: {reason}")
+                self.paper_start_button.setEnabled(True)
+                self.paper_stop_button.setEnabled(False)
+
+            def _paper_finished(self) -> None:
+                if self.paper_stop_button.isEnabled():
+                    self._append_log_event("paper", "stopped")
+                self.paper_start_button.setEnabled(True)
+                self.paper_stop_button.setEnabled(False)
+                self.paper_thread = None
 
             def _stop_paper(self) -> None:
+                if getattr(self, "paper_thread", None) is not None and self.paper_thread.isRunning():
+                    self.paper_thread.requestInterruption()
+                    self.paper_thread.wait(3000)
                 self.paper_start_button.setEnabled(True)
                 self.paper_stop_button.setEnabled(False)
                 self._append_log_event("paper", "stopped")
@@ -1098,7 +1187,7 @@ class MainWindow:
                 self._append_log_event("live", "stopped")
 
             def closeEvent(self, event: Any) -> None:
-                for thread_name in ("live_thread", "backtest_thread"):
+                for thread_name in ("live_thread", "paper_thread", "backtest_thread"):
                     thread = getattr(self, thread_name, None)
                     if thread is not None and thread.isRunning():
                         thread.requestInterruption()

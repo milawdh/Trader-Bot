@@ -6,6 +6,7 @@ from decimal import Decimal
 from trading_bot.config.models import Settings
 from trading_bot.domain import AccountSnapshot
 from trading_bot.execution import PaperGateway, TradingGateway
+from trading_bot.execution.order_builder import market_order_levels
 from trading_bot.risk import PositionSizer, RiskManager, RuntimeRiskState
 from trading_bot.strategies import default_strategy_registry
 from trading_bot.strategies.base import StrategyContext
@@ -15,6 +16,10 @@ from trading_bot.strategies.base import StrategyContext
 class PaperTickResult:
     processed: bool
     reason: str
+    volume: Decimal | None = None
+    entry_price: Decimal | None = None
+    stop_loss: Decimal | None = None
+    take_profit: Decimal | None = None
 
 
 class PaperRunner:
@@ -57,17 +62,27 @@ class PaperRunner:
             return PaperTickResult(True, decision.reason)
 
         entry = tick.ask if signal.side.value == "BUY" else tick.bid
+        stop_loss, take_profit = market_order_levels(signal, entry)
         sizing = self.position_sizer.size_by_risk(
             equity=account.equity,
             risk_percent=self.settings.risk.risk_per_trade_percent,
             side=signal.side,
             symbol=symbol,
             entry_price=entry,
-            stop_loss_price=signal.stop_loss_price,
+            stop_loss_price=stop_loss,
             leverage=account.leverage or self.settings.backtest.leverage,
         )
         if sizing.volume <= Decimal("0"):
             return PaperTickResult(True, sizing.reason)
         state.trades_today += 1
-        return PaperTickResult(True, "paper signal accepted")
-
+        return PaperTickResult(
+            True,
+            (
+                f"paper signal accepted: {signal.side.value} {sizing.volume} "
+                f"{symbol.name} entry={entry} sl={stop_loss} tp={take_profit}"
+            ),
+            volume=sizing.volume,
+            entry_price=entry,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )

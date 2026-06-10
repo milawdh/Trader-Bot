@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from trading_bot.common.exceptions import ExecutionError
 from trading_bot.config.models import Settings
-from trading_bot.execution.order_builder import OrderBuilder
+from trading_bot.execution.order_builder import OrderBuilder, market_order_levels
 from trading_bot.execution import MT5Gateway
 from trading_bot.risk import PositionSizer, RiskManager, RuntimeRiskState
 from trading_bot.strategies import default_strategy_registry
@@ -78,13 +78,14 @@ class LiveRunner:
             return f"Signal rejected: {decision.reason}"
 
         entry = tick.ask if signal.side.value == "BUY" else tick.bid
+        stop_loss, _ = market_order_levels(signal, entry)
         sizing = self.position_sizer.size_by_risk(
             equity=account.equity,
             risk_percent=self.settings.risk.risk_per_trade_percent,
             side=signal.side,
             symbol=symbol,
             entry_price=entry,
-            stop_loss_price=signal.stop_loss_price,
+            stop_loss_price=stop_loss,
             leverage=account.leverage or self.settings.backtest.leverage,
         )
         if sizing.volume <= Decimal("0"):

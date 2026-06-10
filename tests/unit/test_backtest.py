@@ -190,6 +190,51 @@ class BacktestTests(unittest.TestCase):
         self.assertGreaterEqual(len(result.trades), 1)
         self.assertEqual(result.trades[0].symbol, "GBPUSD")
 
+    def test_backtest_does_not_stop_out_on_entry_candle(self) -> None:
+        settings = Settings()
+        settings.risk.minimum_stop_loss_points = 1
+        settings.risk.maximum_stop_loss_points = 100000
+        settings.session.enabled = False
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        candles = [
+            Candle(
+                time=start + timedelta(minutes=5 * index),
+                open=Decimal("1.10000"),
+                high=Decimal("1.10050"),
+                low=Decimal("1.09950"),
+                close=Decimal("1.10000"),
+                complete=True,
+            )
+            for index in range(5)
+        ]
+        candles.append(
+            Candle(
+                time=start + timedelta(minutes=25),
+                open=Decimal("1.10000"),
+                high=Decimal("1.10050"),
+                low=Decimal("1.09800"),
+                close=Decimal("1.10000"),
+                complete=True,
+            )
+        )
+        candles.append(
+            Candle(
+                time=start + timedelta(minutes=30),
+                open=Decimal("1.10000"),
+                high=Decimal("1.10200"),
+                low=Decimal("1.09950"),
+                close=Decimal("1.10100"),
+                complete=True,
+            )
+        )
+
+        result = BacktestEngine(settings, _OneSignalStrategy()).run(candles, run_stress=False)
+
+        self.assertEqual(len(result.trades), 1)
+        self.assertEqual(result.trades[0].entry_time, start + timedelta(minutes=25))
+        self.assertEqual(result.trades[0].exit_time, start + timedelta(minutes=30))
+        self.assertEqual(result.trades[0].exit_reason, "TAKE_PROFIT")
+
 
 def _three_candles_per_day(days: int) -> list[Candle]:
     candles: list[Candle] = []

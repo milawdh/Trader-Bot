@@ -20,14 +20,7 @@ class OrderBuilder:
         volume: Decimal,
     ) -> OrderRequest:
         entry = tick.ask if signal.side is Side.BUY else tick.bid
-        stop_distance = abs(signal.entry_reference_price - signal.stop_loss_price)
-        take_profit_distance = abs(signal.take_profit_price - signal.entry_reference_price)
-        if signal.side is Side.BUY:
-            stop_loss = entry - stop_distance
-            take_profit = entry + take_profit_distance
-        else:
-            stop_loss = entry + stop_distance
-            take_profit = entry - take_profit_distance
+        stop_loss, take_profit = market_order_levels(signal, entry)
         return OrderRequest(
             client_order_id=uuid.uuid4().hex,
             signal_id=signal.signal_id,
@@ -41,3 +34,11 @@ class OrderBuilder:
             magic_number=self.settings.trading.magic_number,
             comment=self.settings.trading.comment,
         )
+
+
+def market_order_levels(signal: TradingSignal, entry: Decimal) -> tuple[Decimal, Decimal]:
+    stop_distance = abs(signal.entry_reference_price - signal.stop_loss_price)
+    take_profit_distance = abs(signal.take_profit_price - signal.entry_reference_price)
+    if signal.side is Side.BUY:
+        return entry - stop_distance, entry + take_profit_distance
+    return entry + stop_distance, entry - take_profit_distance
